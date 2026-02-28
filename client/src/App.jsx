@@ -60,6 +60,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [searched, setSearched] = useState(false);
+  const [showWarnings, setShowWarnings] = useState(false);
 
   const fetchRoute = async () => {
     if (!start.trim() || !end.trim()) {
@@ -81,7 +82,6 @@ export default function App() {
       console.log("API Response:", res.data);
       setStations(res.data.stations || []);
       setWarnings(res.data.warnings || []);
-      // routeCoords is [[lat, lon], ...] from the server
       setRouteCoords(res.data.routeCoords || []);
       setSearched(true);
     } catch (err) {
@@ -91,244 +91,275 @@ export default function App() {
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") fetchRoute();
-  };
-
-  // Separate start, end and middle stations
   const startStation = stations[0];
   const endStation = stations[stations.length - 1];
   const midStations = stations.slice(1, -1);
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <h1 style={styles.title}>⚡ EV Route Planner</h1>
-        <p style={styles.subtitle}>Find charging stations along your route</p>
-        {searched && (
-          <div style={{ background: '#333', color: '#fff', padding: '5px 10px', borderRadius: 5, fontSize: 12, display: 'inline-block', marginTop: 10 }}>
-            Debug: {warnings.length} warnings found
-          </div>
+    <div style={styles.appWrapper}>
+      {/* Full-screen map */}
+      <MapContainer center={[20.5937, 78.9629]} zoom={5} style={styles.map}>
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
+        />
+
+        {routeCoords.length > 0 && (
+          <>
+            <Polyline
+              positions={routeCoords}
+              pathOptions={{ color: "#4f46e5", weight: 5, opacity: 0.8 }}
+            />
+            <FitBounds routeCoords={routeCoords} />
+          </>
         )}
-      </div>
 
-      <div style={styles.searchBox}>
-        <input
-          style={styles.input}
-          placeholder="📍 Start location (e.g. Bangalore)"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        <input
-          style={styles.input}
-          placeholder="🏁 End location (e.g. Mumbai)"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        <button style={styles.button} onClick={fetchRoute} disabled={loading}>
-          {loading ? "🔄 Searching..." : "🔍 Find EV Stations"}
-        </button>
-      </div>
+        {startStation && (
+          <Marker position={[startStation.lat, startStation.lon]} icon={startIcon}>
+            <Popup><strong>🟢 {startStation.tags?.name || "Start"}</strong></Popup>
+          </Marker>
+        )}
 
-      {error && <div style={styles.error}>⚠ {error}</div>}
+        {endStation && stations.length > 1 && (
+          <Marker position={[endStation.lat, endStation.lon]} icon={endIcon}>
+            <Popup><strong>🔴 {endStation.tags?.name || "Destination"}</strong></Popup>
+          </Marker>
+        )}
 
-      {searched && (
-        <div style={styles.stats}>
-          ✅ Found <strong>{midStations.length}</strong> charging station(s) along the route
-        </div>
-      )}
+        {midStations.map((s, i) => (
+          <Marker key={s.id || i} position={[s.lat, s.lon]} icon={evIcon}>
+            <Popup>
+              <strong>⚡ {s.tags?.name || "EV Charging Station"}</strong>
+              {s.tags?.operator && <><br />🏢 {s.tags.operator}</>}
+              {s.tags?.["socket:type2"] && <><br />🔌 Type 2: {s.tags["socket:type2"]} port(s)</>}
+              {s.tags?.fee && <><br />💰 Fee: {s.tags.fee}</>}
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
 
-      {/* Warnings moved up for better visibility */}
-      {warnings && warnings.length > 0 && (
-        <div style={styles.warningsBox} id="warnings-section">
-          <h3 style={styles.warningsHeader}>🚨 Critical Range Warnings</h3>
-          <p style={styles.warningsSub}>The following stretches have limited charging options. Please plan accordingly.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {warnings.map((w, i) => (
-              <div key={i} style={w.distanceKm > 200 ? styles.criticalWarningItem : styles.warningItem}>
-                <div style={styles.warningIcon}>{w.distanceKm > 200 ? "🧨" : "⚠"}</div>
-                <div>
-                  <strong>{w.distanceKm} km</strong> gap between <em>{w.from}</em> and <em>{w.to}</em>
-                  <br />
-                  <span style={{ color: "#7c2d12", fontSize: 13 }}>
-                    💡 Suggested charge: <strong>{w.suggestedChargeTime}</strong> before this stretch.
-                  </span>
-                </div>
-              </div>
-            ))}
+      {/* Overlay panel */}
+      <div style={styles.overlay}>
+        <div style={styles.panel}>
+          <div style={styles.header}>
+            <h1 style={styles.title}>⚡ EV Route Planner</h1>
+            <p style={styles.subtitle}>Find charging stations along your route</p>
           </div>
+
+          <div style={styles.searchBox}>
+            <input
+              style={styles.input}
+              placeholder="Start location"
+              value={start}
+              onChange={e => setStart(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && fetchRoute()}
+            />
+            <input
+              style={styles.input}
+              placeholder="End location"
+              value={end}
+              onChange={e => setEnd(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && fetchRoute()}
+            />
+            <button style={styles.button} onClick={fetchRoute} disabled={loading}>
+              {loading ? "Searching..." : "Find Route"}
+            </button>
+          </div>
+
+          {error && <div style={styles.error}>{error}</div>}
+
+          {searched && !error && (
+            <div style={styles.stats}>
+              ✅ Found <strong>{stations.length}</strong> charging station(s) along your route.
+              {warnings.length > 0 && (
+                <button
+                  style={styles.warningToggle}
+                  onClick={() => setShowWarnings(v => !v)}
+                >
+                  ⚠ {warnings.length} Warning{warnings.length > 1 ? "s" : ""} {showWarnings ? "▲" : "▼"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {showWarnings && warnings.length > 0 && (
+            <div style={styles.warningsBox}>
+              <h3 style={styles.warningsHeader}>⚠ Coverage Gaps</h3>
+              <p style={styles.warningsSub}>Stretches with limited or no charging stations</p>
+              {warnings.map((w, i) => (
+                <div key={i} style={w.distanceKm > 200 ? styles.criticalWarningItem : styles.warningItem}>
+                  <div style={styles.warningIcon}>{w.distanceKm > 200 ? "🧨" : "⚠"}</div>
+                  <div>
+                    <strong>{w.distanceKm} km</strong> gap between <em>{w.from}</em> and <em>{w.to}</em>
+                    <br />
+                    <span style={{ color: "#7c2d12", fontSize: 13 }}>
+                      💡 Suggested charge: <strong>{w.suggestedChargeTime}</strong> before this stretch.
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-
-      <div style={styles.mapWrapper}>
-        <MapContainer center={[20.5937, 78.9629]} zoom={5} style={{ height: "100%", width: "100%" }}>
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
-          />
-
-          {/* Draw route polyline */}
-          {routeCoords.length > 0 && (
-            <>
-              <Polyline
-                positions={routeCoords}
-                pathOptions={{ color: "#4f46e5", weight: 5, opacity: 0.8 }}
-              />
-              <FitBounds routeCoords={routeCoords} />
-            </>
-          )}
-
-          {/* Start marker */}
-          {startStation && (
-            <Marker position={[startStation.lat, startStation.lon]} icon={startIcon}>
-              <Popup><strong>🟢 {startStation.tags?.name || "Start"}</strong></Popup>
-            </Marker>
-          )}
-
-          {/* End marker */}
-          {endStation && stations.length > 1 && (
-            <Marker position={[endStation.lat, endStation.lon]} icon={endIcon}>
-              <Popup><strong>🔴 {endStation.tags?.name || "Destination"}</strong></Popup>
-            </Marker>
-          )}
-
-          {/* EV Stations along route */}
-          {midStations.map((s, i) => (
-            <Marker key={s.id || i} position={[s.lat, s.lon]} icon={evIcon}>
-              <Popup>
-                <strong>⚡ {s.tags?.name || "EV Charging Station"}</strong>
-                {s.tags?.operator && <><br />🏢 {s.tags.operator}</>}
-                {s.tags?.["socket:type2"] && <><br />🔌 Type 2: {s.tags["socket:type2"]} port(s)</>}
-                {s.tags?.fee && <><br />💰 Fee: {s.tags.fee}</>}
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
       </div>
-
     </div>
   );
 }
 
 const styles = {
-  container: {
-    fontFamily: "'Segoe UI', sans-serif",
-    maxWidth: 900,
-    margin: "0 auto",
-    padding: "20px",
-    background: "#f0f4ff",
-    minHeight: "100vh",
+  appWrapper: {
+    position: "relative",
+    width: "100vw",
+    height: "100vh",
+    overflow: "hidden",
+  },
+  map: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    zIndex: 0,
+  },
+  overlay: {
+    position: "absolute",
+    top: 16,
+    left: "50%",
+    transform: "translateX(-50%)",
+    zIndex: 1000,
+    width: "100%",
+    maxWidth: 600,
+    padding: "0 16px",
+    boxSizing: "border-box",
+    pointerEvents: "none",
+  },
+  panel: {
+    background: "rgba(255, 255, 255, 0.95)",
+    backdropFilter: "blur(8px)",
+    borderRadius: 16,
+    padding: "16px 20px",
+    boxShadow: "0 4px 24px rgba(0,0,0,0.18)",
+    pointerEvents: "all",
   },
   header: {
     textAlign: "center",
-    marginBottom: 24,
+    marginBottom: 12,
   },
   title: {
-    fontSize: 32,
+    fontSize: 24,
     color: "#4f46e5",
     margin: 0,
   },
   subtitle: {
     color: "#666",
-    marginTop: 6,
-    fontSize: 15,
+    marginTop: 4,
+    marginBottom: 0,
+    fontSize: 13,
   },
   searchBox: {
     display: "flex",
-    gap: 10,
-    marginBottom: 16,
+    gap: 8,
     flexWrap: "wrap",
   },
   input: {
     flex: 1,
-    minWidth: 200,
-    padding: "10px 14px",
+    minWidth: 160,
+    padding: "9px 12px",
     borderRadius: 8,
     border: "1px solid #c7d2fe",
-    fontSize: 15,
+    fontSize: 14,
     outline: "none",
     background: "#fff",
     color: "#111",
   },
   button: {
-    padding: "10px 22px",
+    padding: "9px 18px",
     background: "#4f46e5",
     color: "#fff",
     border: "none",
     borderRadius: 8,
-    fontSize: 15,
+    fontSize: 14,
     cursor: "pointer",
     fontWeight: 600,
+    whiteSpace: "nowrap",
   },
   error: {
     color: "#dc2626",
     background: "#fee2e2",
-    padding: "10px 14px",
+    padding: "8px 12px",
     borderRadius: 8,
-    marginBottom: 12,
+    marginTop: 10,
+    fontSize: 14,
   },
   stats: {
     color: "#166534",
     background: "#dcfce7",
-    padding: "10px 14px",
+    padding: "8px 12px",
     borderRadius: 8,
-    marginBottom: 12,
-    fontSize: 15,
+    marginTop: 10,
+    fontSize: 14,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    flexWrap: "wrap",
   },
-  mapWrapper: {
-    height: 520,
-    borderRadius: 12,
-    overflow: "hidden",
-    border: "2px solid #c7d2fe",
-    boxShadow: "0 4px 20px rgba(79,70,229,0.15)",
+  warningToggle: {
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+    borderRadius: 6,
+    padding: "4px 10px",
+    cursor: "pointer",
+    fontSize: 13,
+    color: "#9a3412",
+    fontWeight: 600,
   },
   warningsBox: {
-    marginTop: 20,
+    marginTop: 10,
     background: "#fff7ed",
     border: "2px solid #fed7aa",
     borderRadius: 12,
-    padding: "20px",
-    boxShadow: "0 2px 10px rgba(251,146,60,0.1)",
+    padding: "12px 16px",
+    maxHeight: 220,
+    overflowY: "auto",
   },
   warningsHeader: {
-    margin: "0 0 6px 0",
+    margin: "0 0 4px 0",
     color: "#9a3412",
-    fontSize: 18,
+    fontSize: 16,
   },
   warningsSub: {
-    margin: "0 0 16px 0",
+    margin: "0 0 10px 0",
     color: "#7c2d12",
-    fontSize: 14,
+    fontSize: 13,
     opacity: 0.8,
   },
   warningItem: {
-    marginBottom: 10,
-    padding: "12px 16px",
+    marginBottom: 8,
+    padding: "10px 14px",
     background: "#ffedd5",
     borderLeft: "4px solid #f97316",
     borderRadius: 8,
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 1.6,
     display: "flex",
-    gap: 12,
+    gap: 10,
     alignItems: "flex-start",
   },
   criticalWarningItem: {
-    marginBottom: 10,
-    padding: "12px 16px",
+    marginBottom: 8,
+    padding: "10px 14px",
     background: "#fee2e2",
     borderLeft: "4px solid #ef4444",
     borderRadius: 8,
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 1.6,
     display: "flex",
-    gap: 12,
+    gap: 10,
     alignItems: "flex-start",
   },
   warningIcon: {
-    fontSize: 20,
+    fontSize: 18,
     marginTop: 2,
   },
 };
